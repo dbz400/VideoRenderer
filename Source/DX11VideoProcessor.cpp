@@ -568,10 +568,6 @@ HRESULT CDX11VideoProcessor::Init(const HWND hwnd, const bool displayHdrChanged,
 	}
 	m_nCurrentAdapter = currentAdapter;
 
-	if (m_bDecoderDevice && m_pDXGISwapChain1) {
-		return S_OK;
-	}
-
 	ReleaseSwapChain();
 	m_pDXGIFactory2.Release();
 	ReleaseDevice();
@@ -1346,6 +1342,7 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 
 	m_pFilter->OnDisplayModeChange();
 	UpdateStatsStatic();
+	UpdateStatsByWindow();
 	UpdateStatsByDisplay();
 
 	return hr;
@@ -3564,7 +3561,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	}
 
 	if (changeSuperRes) {
-		auto superRes = (m_bVPScaling && !(m_bHdrPassthroughSupport && m_bHdrPassthrough && SourceIsHDR())) ? m_iVPSuperRes : SUPERRES_Disable;
+		auto superRes = (m_bVPScaling && m_srcParams.CDepth == 8 && !(m_bHdrPassthroughSupport && m_bHdrPassthrough && SourceIsHDR())) ? m_iVPSuperRes : SUPERRES_Disable;
 		m_bVPUseSuperRes = (m_D3D11VP.SetSuperRes(superRes) == S_OK);
 	}
 
