@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2024 see Authors.txt
+* (C) 2018-2025 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -28,6 +28,7 @@
 #include "D3DUtil/D3D9Geometry.h"
 #include "VideoProcessor.h"
 #include "Shaders.h"
+#include "SubPic/DX9SubPic.h"
 
 class CDX9VideoProcessor
 	: public CVideoProcessor
@@ -99,6 +100,10 @@ private:
 	CD3D9Rectangle m_Underlay;
 	CD3D9Lines     m_Lines;
 	CD3D9Polyline  m_SyncLine;
+
+	// SubPic
+	CComPtr<CDX9SubPicAllocator> m_pSubPicAllocator;
+	void UpdateSubPic();
 
 	CAMEvent m_evInit;
 	CAMEvent m_evResize;
@@ -178,6 +183,8 @@ public:
 
 	HRESULT AddPreScaleShader(const std::wstring& name, const std::string& srcCode) override;
 	HRESULT AddPostScaleShader(const std::wstring& name, const std::string& srcCode) override;
+
+	ISubPicAllocator* GetSubPicAllocator() override;
 
 private:
 	void UpdateTexures();

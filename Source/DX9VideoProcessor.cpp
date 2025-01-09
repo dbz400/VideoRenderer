@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2024 see Authors.txt
+* (C) 2018-2025 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -326,6 +326,9 @@ CDX9VideoProcessor::CDX9VideoProcessor(CMpcVideoRenderer* pFilter, const Setting
 
 CDX9VideoProcessor::~CDX9VideoProcessor()
 {
+	m_pFilter->m_pSubPicQueue.Release();
+	m_pSubPicAllocator.Release();
+
 	if (m_deviceThread.joinable()) {
 		m_evQuit.Set();
 		m_deviceThread.join();
@@ -536,6 +539,8 @@ HRESULT CDX9VideoProcessor::InitInternal(bool* pChangeDevice/* = nullptr*/)
 				return E_FAIL;
 			}
 		}
+
+		UpdateSubPic();
 
 		HRESULT hr2 = m_Font3D.InitDeviceObjects(m_pD3DDevEx);
 		DLogIf(FAILED(hr2), L"m_Font3D.InitDeviceObjects() failed with error {}", HR2Str(hr2));
@@ -2157,6 +2162,14 @@ HRESULT CDX9VideoProcessor::AddPostScaleShader(const std::wstring& name, const s
 	return hr;
 }
 
+ISubPicAllocator* CDX9VideoProcessor::GetSubPicAllocator()
+{
+	if (!m_pSubPicAllocator && m_pD3DDevEx) {
+		m_pSubPicAllocator = new CDX9SubPicAllocator(m_pD3DDevEx, { 1280, 720 }, true/*Hmm*/);
+	}
+	return m_pSubPicAllocator;
+}
+
 void CDX9VideoProcessor::UpdateTexures()
 {
 	if (!m_srcWidth || !m_srcHeight) {
@@ -2578,10 +2591,31 @@ HRESULT CDX9VideoProcessor::FinalPass(IDirect3DTexture9* pTexture, IDirect3DSurf
 
 void CDX9VideoProcessor::DrawSubtitles(IDirect3DSurface9* pRenderTarget)
 {
+	HRESULT hr = S_OK;
+
+	CComPtr<ISubPic> pSubPic = m_pFilter->GetSubPic(m_rtStart);
+	if (pSubPic) {
+		RECT rcSource, rcDest;
+		hr = pSubPic->GetSourceAndDest(m_windowRect, m_videoRect, &rcSource, &rcDest, FALSE, {}, 0, FALSE);
+		if (SUCCEEDED(hr)) {
+			HRESULT hr_ec = m_pD3DDevEx->EndScene();
+
+			hr = m_pD3DDevEx->SetRenderTarget(0, pRenderTarget);
+			if (SUCCEEDED(hr)) {
+				hr = pSubPic->AlphaBlt(&rcSource, &rcDest, nullptr);
+			}
+
+			if (SUCCEEDED(hr_ec)) {
+				hr_ec = m_pD3DDevEx->BeginScene();
+			}
+		}
+		return;
+	}
+
 	if (m_pFilter->m_pSubCallBack) {
 		HRESULT hr_ec = m_pD3DDevEx->EndScene();
 
-		HRESULT hr = m_pD3DDevEx->SetRenderTarget(0, pRenderTarget);
+		hr = m_pD3DDevEx->SetRenderTarget(0, pRenderTarget);
 		if (SUCCEEDED(hr)) {
 			const SIZE windowSize = m_windowRect.Size();
 			const CRect rSrcPri(POINT(0, 0), windowSize);
@@ -3235,5 +3269,21 @@ STDMETHODIMP CDX9VideoProcessor::UpdateAlphaBitmapParameters(const MFVideoAlphaB
 		return ((pBmpParms->dwFlags & validFlags) == validFlags) ? S_OK : S_FALSE;
 	} else {
 		return MF_E_NOT_INITIALIZED;
+	}
+}
+
+void CDX9VideoProcessor::UpdateSubPic()
+{
+	ASSERT(m_pD3DDevEx);
+
+	if (m_pFilter->m_pSubPicProvider) {
+		if (m_pSubPicAllocator) {
+			m_pSubPicAllocator->ChangeDevice(m_pD3DDevEx);
+		}
+
+		if (m_pFilter->m_pSubPicQueue) {
+			m_pFilter->m_pSubPicQueue->Invalidate();
+			m_pFilter->m_pSubPicQueue->SetSubPicProvider(m_pFilter->m_pSubPicProvider);
+		}
 	}
 }

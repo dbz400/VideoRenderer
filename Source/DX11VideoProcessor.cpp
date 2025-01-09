@@ -1,5 +1,5 @@
 /*
-* (C) 2018-2024 see Authors.txt
+* (C) 2018-2025 see Authors.txt
 *
 * This file is part of MPC-BE.
 *
@@ -514,6 +514,9 @@ CDX11VideoProcessor::~CDX11VideoProcessor()
 			}
 		}
 	}
+
+	m_pFilter->m_pSubPicQueue.Release();
+	m_pSubPicAllocator.Release();
 
 	ReleaseSwapChain();
 	m_pDXGIFactory2.Release();
@@ -1295,6 +1298,7 @@ HRESULT CDX11VideoProcessor::SetDevice(ID3D11Device *pDevice, ID3D11DeviceContex
 	}
 
 	SetCallbackDevice();
+	UpdateSubPic();
 
 	HRESULT hr3 = m_Font3D.InitDeviceObjects(m_pDevice, m_pDeviceContext);
 	DLogIf(FAILED(hr3), L"m_Font3D.InitDeviceObjects() failed with error {}", HR2Str(hr3));
@@ -2862,9 +2866,34 @@ HRESULT CDX11VideoProcessor::FinalPass(const Tex2D_t& Tex, ID3D11Texture2D* pRen
 
 void CDX11VideoProcessor::DrawSubtitles(ID3D11Texture2D* pRenderTarget)
 {
+	HRESULT hr = S_OK;
+
+	CComPtr<ISubPic> pSubPic = m_pFilter->GetSubPic(m_rtStart);
+	if (pSubPic) {
+		RECT rcSource, rcDest;
+		hr = pSubPic->GetSourceAndDest(m_windowRect, m_videoRect, &rcSource, &rcDest, FALSE, {}, 0, FALSE);
+		if (SUCCEEDED(hr)) {
+			ID3D11RenderTargetView* pRenderTargetView;
+			hr = m_pDevice->CreateRenderTargetView(pRenderTarget, nullptr, &pRenderTargetView);
+			if (SUCCEEDED(hr)) {
+				// Set render target and shaders
+				m_pDeviceContext->OMSetRenderTargets(1, &pRenderTargetView, nullptr);
+				m_pDeviceContext->IASetInputLayout(m_pVSimpleInputLayout);
+				m_pDeviceContext->VSSetShader(m_pVS_Simple, nullptr, 0);
+				m_pDeviceContext->PSSetShader(m_pPS_BitmapToFrame, nullptr, 0);
+
+				// call the function for drawing subtitles
+				hr = pSubPic->AlphaBlt(&rcSource, &rcDest, nullptr);
+
+				pRenderTargetView->Release();
+			}
+		}
+		return;
+	}
+
 	if (m_pFilter->m_pSub11CallBack) {
 		ID3D11RenderTargetView* pRenderTargetView;
-		HRESULT hr = m_pDevice->CreateRenderTargetView(pRenderTarget, nullptr, &pRenderTargetView);
+		hr = m_pDevice->CreateRenderTargetView(pRenderTarget, nullptr, &pRenderTargetView);
 		if (SUCCEEDED(hr)) {
 			const CRect rSrcPri(POINT(0, 0), m_windowRect.Size());
 			const CRect rDstVid(m_videoRect);
@@ -3677,6 +3706,14 @@ HRESULT CDX11VideoProcessor::AddPostScaleShader(const std::wstring& name, const 
 	return hr;
 }
 
+ISubPicAllocator* CDX11VideoProcessor::GetSubPicAllocator()
+{
+	if (!m_pSubPicAllocator && m_pDevice) {
+		m_pSubPicAllocator = new CDX11SubPicAllocator(m_pDevice, { 1280, 720 });
+	}
+	return m_pSubPicAllocator;
+}
+
 void CDX11VideoProcessor::UpdateStatsPresent()
 {
 	DXGI_SWAP_CHAIN_DESC1 swapchain_desc;
@@ -4031,5 +4068,21 @@ void CDX11VideoProcessor::SetCallbackDevice()
 {
 	if (!m_bCallbackDeviceIsSet && m_pDevice && m_pFilter->m_pSub11CallBack) {
 		m_bCallbackDeviceIsSet = SUCCEEDED(m_pFilter->m_pSub11CallBack->SetDevice11(m_pDevice));
+	}
+}
+
+void CDX11VideoProcessor::UpdateSubPic()
+{
+	ASSERT(m_pDevice);
+
+	if (m_pFilter->m_pSubPicProvider) {
+		if (m_pSubPicAllocator) {
+			m_pSubPicAllocator->ChangeDevice(m_pDevice);
+		}
+
+		if (m_pFilter->m_pSubPicQueue) {
+			m_pFilter->m_pSubPicQueue->Invalidate();
+			m_pFilter->m_pSubPicQueue->SetSubPicProvider(m_pFilter->m_pSubPicProvider);
+		}
 	}
 }

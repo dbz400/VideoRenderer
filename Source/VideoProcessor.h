@@ -1,5 +1,5 @@
 /*
- * (C) 2020-2024 see Authors.txt
+ * (C) 2020-2025 see Authors.txt
  *
  * This file is part of MPC-BE.
  *
@@ -23,6 +23,7 @@
 #include <evr9.h>
 #include "DisplayConfig.h"
 #include "FrameStats.h"
+#include "SubPic/ISubPic.h"
 
 enum : int {
 	VP_DX9 = 9,
@@ -223,6 +224,8 @@ public:
 	void SetDisplayInfo(const DisplayConfig_t& dc, const bool primary, const bool fullscreen);
 
 	bool GetDoubleRate() { return m_bDoubleFrames; }
+
+	virtual ISubPicAllocator* GetSubPicAllocator() PURE;
 
 protected:
 	inline bool SourceIsPQorHLG() {
